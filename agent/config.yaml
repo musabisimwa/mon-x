@@ -1,0 +1,14 @@
+agent:
+  name: "web-server-01"
+  server_url: "http://localhost:8080"
+  report_interval: 5
+  
+collection:
+  metrics: true
+  logs: true
+  resources: true
+  
+log_paths:
+  - "/var/log/app/*.log"
+  - "/var/log/nginx/access.log"
+  - "/var/log/nginx/error.log"

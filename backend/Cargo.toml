@@ -1,0 +1,21 @@
+[package]
+name = "ml-monitoring-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+actix-web = "4.4"
+actix-cors = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rdkafka = "0.36"
+opensearch = "2.2"
+smartcore = "0.3"
+uuid = { version = "1.0", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+jsonwebtoken = "9.2"
+actix-web-actors = "4.2"
+actix = "0.13"
+env_logger = "0.10"
+url = "2.4"

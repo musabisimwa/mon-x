@@ -1,0 +1,21 @@
+anomaly_detection:
+  algorithms:
+    - name: "IsolationForest"
+      enabled: true
+      threshold: 0.8
+      window_size: 100
+      
+    - name: "RandomCutForest" 
+      enabled: true
+      threshold: 3.0  # 3x error rate increase
+      window_size: 20
+      
+    - name: "LogEmbedding"
+      enabled: true
+      rare_threshold: 0.01  # 1% frequency
+      pattern_matching: true
+
+  general:
+    detection_interval: 30s
+    max_anomalies: 100
+    min_samples: 10
