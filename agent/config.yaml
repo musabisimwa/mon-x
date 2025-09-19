@@ -1,14 +1,17 @@
 agent:
-  name: "web-server-01"
+  name: "comprehensive-agent-001"
   server_url: "http://localhost:8080"
-  report_interval: 5
-  
+  report_interval: 10
+
 collection:
   metrics: true
   logs: true
-  resources: true
-  
-log_paths:
-  - "/var/log/app/*.log"
-  - "/var/log/nginx/access.log"
-  - "/var/log/nginx/error.log"
+  traces: true
+  processes: true
+  health: true
+  docker: true
+  nginx_log_path: "/var/log/nginx/access.log"
+  health_check_urls:
+    - "http://localhost:8080/health"
+    - "http://localhost:3000/api/health"
+    - "http://localhost:9200/_cluster/health"

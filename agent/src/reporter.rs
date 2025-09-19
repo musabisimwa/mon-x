@@ -1,7 +1,7 @@
 use reqwest::Client;
 use serde_json::json;
 use crate::config::Config;
-use crate::collector::{AgentMetrics, AgentLog};
+use crate::collector::{MetricData, LogData, TraceData, ProcessData, HealthData};
 
 pub async fn register_agent(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
@@ -13,7 +13,10 @@ pub async fn register_agent(config: &Config) -> Result<(), Box<dyn std::error::E
         "capabilities": {
             "metrics": config.collection.metrics,
             "logs": config.collection.logs,
-            "resources": config.collection.resources
+            "traces": config.collection.traces,
+            "processes": config.collection.processes,
+            "health": config.collection.health,
+            "docker": config.collection.docker
         }
     });
     
@@ -31,23 +34,44 @@ pub async fn register_agent(config: &Config) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-pub async fn send_data(
+pub async fn send_comprehensive_data(
     config: &Config,
-    metrics: AgentMetrics,
-    logs: Vec<AgentLog>
+    metrics: Vec<MetricData>,
+    logs: Vec<LogData>,
+    traces: Vec<TraceData>,
+    processes: Vec<ProcessData>,
+    health_data: Vec<HealthData>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
     
     // Send metrics
-    if config.collection.metrics {
+    if config.collection.metrics && !metrics.is_empty() {
         let url = format!("{}/api/agents/metrics", config.agent.server_url);
         let _ = client.post(&url).json(&metrics).send().await;
     }
     
-    // Send logs
+    // Send logs (Docker, nginx, system)
     if config.collection.logs && !logs.is_empty() {
         let url = format!("{}/api/agents/logs", config.agent.server_url);
         let _ = client.post(&url).json(&logs).send().await;
+    }
+    
+    // Send traces (HTTP API calls)
+    if config.collection.traces && !traces.is_empty() {
+        let url = format!("{}/api/agents/traces", config.agent.server_url);
+        let _ = client.post(&url).json(&traces).send().await;
+    }
+    
+    // Send process data
+    if config.collection.processes && !processes.is_empty() {
+        let url = format!("{}/api/agents/processes", config.agent.server_url);
+        let _ = client.post(&url).json(&processes).send().await;
+    }
+    
+    // Send health check results
+    if config.collection.health && !health_data.is_empty() {
+        let url = format!("{}/api/agents/health", config.agent.server_url);
+        let _ = client.post(&url).json(&health_data).send().await;
     }
     
     Ok(())

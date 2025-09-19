@@ -36,6 +36,11 @@ async fn main() -> std::io::Result<()> {
                     .route("/agents/register", web::post().to(api::register_agent))
                     .route("/agents/metrics", web::post().to(api::receive_agent_metrics))
                     .route("/agents/logs", web::post().to(api::receive_agent_logs))
+                    .route("/agents/traces", web::post().to(api::receive_agent_traces))
+                    .route("/agents/processes", web::post().to(api::receive_agent_processes))
+                    .route("/agents/health", web::post().to(api::receive_agent_health))
+                    .route("/processes", web::get().to(api::get_processes))
+                    .route("/health", web::get().to(api::get_health_status))
             )
     })
     .bind("127.0.0.1:8080")?
