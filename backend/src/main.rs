@@ -7,10 +7,16 @@ mod ml;
 mod websocket;
 mod api;
 mod log_humanizer;
+mod gemma_ai;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
+    
+    // Initialize Gemma AI
+    if let Err(e) = gemma_ai::initialize_gemma().await {
+        eprintln!("Gemma AI initialization failed: {}", e);
+    }
     
     // Start Kafka consumer (skip if Kafka unavailable)
     tokio::spawn(async {
@@ -22,7 +28,7 @@ async fn main() -> std::io::Result<()> {
     // Start ML anomaly detection
     tokio::spawn(ml::start_anomaly_detector());
     
-    println!("🚀 Mon-X Backend starting on http://127.0.0.1:8080");
+    println!("Mon-X Backend starting on http://127.0.0.1:8080");
     
     HttpServer::new(|| {
         let cors = Cors::default()
@@ -53,6 +59,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/http-calls", web::get().to(api::get_http_calls))
                     .route("/database-queries", web::get().to(api::get_database_queries))
                     .route("/humanize-log", web::post().to(api::humanize_log))
+                    .route("/ai-insights", web::get().to(api::get_ai_insights))
+                    .route("/ingest/{topic}", web::post().to(api::ingest_data))
             )
     })
     .bind("127.0.0.1:8080")?

@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 import { ArrowBack, TrendingUp, Error, Speed, Memory } from '@mui/icons-material';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import AIInsightsPanel from './AIInsightsPanel';
 import axios from 'axios';
 
 const AppDetailPage = () => {
@@ -197,12 +198,14 @@ const AppDetailPage = () => {
           </Paper>
         </Grid>
 
-        {/* Anomalies Panel */}
+        {/* AI Insights Panel */}
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2, height: 400, overflow: 'auto' }}>
+          <Paper sx={{ p: 2, height: 400, position: 'relative' }}>
             <Typography variant="h6" gutterBottom>
-              🤖 AI Anomalies ({anomalies.length})
+              Intelligent Analysis
             </Typography>
+            <AIInsightsPanel agentId={appName} />
+        
             {anomalies.length === 0 ? (
               <Typography color="textSecondary">No anomalies detected</Typography>
             ) : (
@@ -264,7 +267,7 @@ const AppDetailPage = () => {
         <Grid item xs={12}>
           <Paper sx={{ p: 2, height: 300, overflow: 'auto' }}>
             <Typography variant="h6" gutterBottom>
-              📋 {appName} - Real-time Logs ({logs.length})
+               {appName} - Logs ({logs.length})
             </Typography>
             <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
               {logs.length === 0 ? (

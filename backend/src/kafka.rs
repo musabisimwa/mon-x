@@ -46,7 +46,7 @@ pub async fn start_consumer() -> Result<(), Box<dyn std::error::Error>> {
 
     // Subscribe to all agent topics using patterns
     consumer.subscribe(&["logs-.*", "metrics-.*", "traces-.*"])?;
-    println!("✅ Kafka consumer started for agent topics");
+    println!("Kafka consumer started for agent topics");
 
     loop {
         match consumer.recv().await {
@@ -70,21 +70,21 @@ async fn process_message_by_topic(topic: &str, data: &str) {
     match topic {
         t if t.starts_with("logs-") => {
             if let Ok(log_event) = serde_json::from_str::<LogEvent>(data) {
-                println!("📋 Processing log from {}: {}", t, log_event.message);
+                println!(" Processing log from {}: {}", t, log_event.message);
                 crate::opensearch::index_log(&log_event).await;
                 crate::ml::analyze_event(&log_event).await;
             }
         },
         t if t.starts_with("metrics-") => {
             if let Ok(metric_event) = serde_json::from_str::<MetricEvent>(data) {
-                println!("📊 Processing metric from {}: {} = {}", t, metric_event.metric_type, metric_event.value);
+                println!("Processing metric from {}: {} = {}", t, metric_event.metric_type, metric_event.value);
                 crate::opensearch::index_metric(&metric_event).await;
                 crate::ml::analyze_metric(&metric_event).await;
             }
         },
         t if t.starts_with("traces-") => {
             if let Ok(trace_event) = serde_json::from_str::<TraceEvent>(data) {
-                println!("🔍 Processing trace from {}: {}", t, trace_event.operation);
+                println!(" Processing trace from {}: {}", t, trace_event.operation);
                 crate::opensearch::index_trace(&trace_event).await;
             }
         },
@@ -96,7 +96,7 @@ async fn process_message_by_topic(topic: &str, data: &str) {
 
 pub async fn create_agent_topics(agent_id: &str) -> Result<(), Box<dyn std::error::Error>> {
     // For now, topics will be auto-created when first message is sent
-    // In production, you'd use AdminClient to pre-create topics
-    println!("✅ Topics will be auto-created for agent: {}", agent_id);
+    // In production, use AdminClient to pre-create topics
+    println!("Topics will be auto-created for agent: {}", agent_id);
     Ok(())
 }

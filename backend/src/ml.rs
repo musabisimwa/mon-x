@@ -48,6 +48,19 @@ pub async fn analyze_event(event: &LogEvent) {
 pub async fn analyze_metric(metric: &crate::kafka::MetricEvent) {
     // Store metrics for anomaly detection
     if metric.metric_type == "cpu" && metric.value > 90.0 {
+        // Create anomaly context for AI analysis
+        let context = crate::gemma_ai::AnomalyContext {
+            logs: get_recent_logs(&metric.agent_id),
+            cpu_usage: metric.value,
+            memory_usage: get_memory_usage(&metric.agent_id),
+            error_count: count_recent_errors(&metric.agent_id),
+            health_status: get_health_status(&metric.agent_id),
+            agent_id: metric.agent_id.clone(),
+        };
+
+        // Get AI insights
+        let ai_insight = crate::gemma_ai::analyze_system_anomaly(context).await;
+
         let anomaly = Anomaly {
             timestamp: chrono::Utc::now().to_rfc3339(),
             score: 0.95,
@@ -60,14 +73,47 @@ pub async fn analyze_metric(metric: &crate::kafka::MetricEvent) {
                 source: "metrics".to_string(),
                 trace_id: None,
             },
-            reason: format!("CPU usage spike: {}%", metric.value),
-            algorithm: "MetricThreshold".to_string(),
-            humanized: None,
+            reason: ai_insight.root_cause.clone(),
+            algorithm: "GemmaAI".to_string(),
+            humanized: Some(crate::log_humanizer::HumanizedLog {
+                original_message: format!("High CPU usage: {}%", metric.value),
+                human_explanation: ai_insight.analysis,
+                severity: ai_insight.severity,
+                possible_causes: vec![ai_insight.root_cause],
+                suggested_fixes: ai_insight.suggested_fixes,
+                confidence: ai_insight.confidence,
+            }),
         };
         
         let mut anomalies = ANOMALIES.lock().unwrap();
         anomalies.push(anomaly);
     }
+}
+
+fn get_recent_logs(agent_id: &str) -> Vec<String> {
+    let buffer = EVENT_BUFFER.lock().unwrap();
+    buffer.iter()
+        .filter(|log| log.service == agent_id || log.agent_id == agent_id)
+        .take(10)
+        .map(|log| log.message.clone())
+        .collect()
+}
+
+fn get_memory_usage(agent_id: &str) -> f64 {
+    // Mock implementation - in production, get from metrics store
+    60.0 + (agent_id.len() as f64 * 2.0) % 40.0
+}
+
+fn count_recent_errors(agent_id: &str) -> u32 {
+    let buffer = EVENT_BUFFER.lock().unwrap();
+    buffer.iter()
+        .filter(|log| (log.service == agent_id || log.agent_id == agent_id) && log.level == "ERROR")
+        .count() as u32
+}
+
+fn get_health_status(agent_id: &str) -> String {
+    // Mock implementation - in production, get from health checks
+    if agent_id.contains("demo") { "healthy".to_string() } else { "degraded".to_string() }
 }
 
 // Simple statistical anomaly detection (without isolation forest for now)

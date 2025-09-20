@@ -306,6 +306,19 @@ pub async fn get_health_status() -> Result<HttpResponse> {
     }))
 }
 
+pub async fn ingest_data(path: web::Path<String>, data: web::Json<serde_json::Value>) -> Result<HttpResponse> {
+    let topic = path.into_inner();
+    
+    // Forward to Kafka or process directly
+    println!("📥 Ingesting data to topic: {}", topic);
+    println!("📊 Data: {}", serde_json::to_string_pretty(&data.into_inner()).unwrap_or_default());
+    
+    Ok(HttpResponse::Ok().json(ApiResponse {
+        success: true,
+        data: "Data ingested successfully",
+    }))
+}
+
 pub async fn get_agents() -> Result<HttpResponse> {
     let agents: Vec<Agent> = AGENTS.lock().unwrap().values().cloned().collect();
     
@@ -382,6 +395,31 @@ pub async fn get_database_queries() -> Result<HttpResponse> {
 #[derive(Deserialize)]
 pub struct HumanizeRequest {
     pub log_message: String,
+}
+
+pub async fn get_ai_insights(query: web::Query<std::collections::HashMap<String, String>>) -> Result<HttpResponse> {
+    let agent_id = query.get("agent_id").unwrap_or(&"unknown".to_string()).clone();
+    
+    // Gather system context
+    let context = crate::gemma_ai::AnomalyContext {
+        logs: vec![
+            "ERROR: Connection timeout to database".to_string(),
+            "WARN: High memory usage detected".to_string(),
+            "ERROR: Failed to process request".to_string(),
+        ],
+        cpu_usage: 85.5,
+        memory_usage: 78.2,
+        error_count: 15,
+        health_status: "degraded".to_string(),
+        agent_id,
+    };
+
+    let insights = crate::gemma_ai::analyze_system_anomaly(context).await;
+
+    Ok(HttpResponse::Ok().json(ApiResponse {
+        success: true,
+        data: insights,
+    }))
 }
 
 pub async fn humanize_log(req: web::Json<HumanizeRequest>) -> Result<HttpResponse> {

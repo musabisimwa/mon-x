@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: spring-boot-app
+
+monx:
+  agent:
+    id: ${AGENT_ID:spring-boot-app}
+  kafka:
+    bootstrap-servers: ${KAFKA_SERVERS:host.docker.internal:9092}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,info
+  endpoint:
+    health:
+      show-details: always
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.monx: DEBUG

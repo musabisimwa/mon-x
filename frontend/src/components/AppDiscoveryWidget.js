@@ -34,7 +34,7 @@ const AppDiscoveryWidget = ({ agents, anomalies = [] }) => {
     return (
       <Paper sx={{ p: 6, textAlign: 'center', minHeight: '60vh', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <Typography variant="h4" color="textSecondary" gutterBottom>
-          🔍 Discovering Applications...
+          Discovering Applications...
         </Typography>
         <Typography variant="body1" color="textSecondary">
           No applications detected yet. Start your monitoring agents to see them appear here.
@@ -47,7 +47,7 @@ const AppDiscoveryWidget = ({ agents, anomalies = [] }) => {
     <Paper sx={{ p: 3, minHeight: '70vh' }}>
       <Box display="flex" alignItems="center" justifyContent="space-between" mb={4}>
         <Typography variant="h4" component="h2" sx={{ fontWeight: 'bold' }}>
-          🚀 Discovered Applications
+          Discovered Applications
         </Typography>
         <Chip 
           label={`${agents.length} Active`} 

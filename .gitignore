@@ -1,6 +1,7 @@
 # Rust
 backend/target/**/*
 agent/target/**/*
+*.gguf #exclude all GGUF model files as they are large
 Cargo.lock
 *.log
 
