@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH, Instant};
@@ -58,14 +58,72 @@ pub struct HealthData {
     pub is_healthy: bool,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct HttpCallData {
+    pub timestamp: u64,
+    pub agent_id: String,
+    pub method: String,
+    pub url: String,
+    pub status_code: u16,
+    pub duration_ms: u64,
+    pub request_size: u64,
+    pub response_size: u64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct DatabaseQueryData {
+    pub timestamp: u64,
+    pub agent_id: String,
+    pub db_type: String,
+    pub query: String,
+    pub duration_ms: u64,
+    pub rows_affected: u64,
+    pub error: Option<String>,
+}
+
 pub async fn collect_metrics(config: &Config) -> Vec<MetricData> {
     let mut metrics = Vec::new();
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     
     collect_system_metrics(&mut metrics, &config.agent.name, timestamp);
     collect_docker_metrics(&mut metrics, &config.agent.name, timestamp).await;
+    collect_custom_app_metrics(&mut metrics, &config.agent.name, timestamp);
     
     metrics
+}
+
+fn collect_custom_app_metrics(metrics: &mut Vec<MetricData>, agent_id: &str, timestamp: u64) {
+    // Custom application metrics - can be extended per application
+    if let Ok(output) = Command::new("ps").args(&["aux"]).output() {
+        if let Ok(content) = String::from_utf8(output.stdout) {
+            let app_processes = content.lines()
+                .filter(|line| line.contains("node") || line.contains("python") || line.contains("java"))
+                .count();
+            
+            metrics.push(MetricData {
+                timestamp, agent_id: agent_id.to_string(),
+                metric_type: "app_processes_count".to_string(), 
+                value: app_processes as f64,
+                labels: HashMap::new(),
+            });
+        }
+    }
+    
+    // Check for specific application ports
+    if let Ok(output) = Command::new("ss").args(&["-tuln"]).output() {
+        if let Ok(content) = String::from_utf8(output.stdout) {
+            let listening_ports = content.lines()
+                .filter(|line| line.contains("LISTEN"))
+                .count();
+            
+            metrics.push(MetricData {
+                timestamp, agent_id: agent_id.to_string(),
+                metric_type: "listening_ports_count".to_string(),
+                value: listening_ports as f64,
+                labels: HashMap::new(),
+            });
+        }
+    }
 }
 
 pub async fn collect_logs(config: &Config) -> Vec<LogData> {
@@ -153,40 +211,246 @@ pub async fn collect_health_checks(config: &Config) -> Vec<HealthData> {
     health_data
 }
 
-fn collect_system_metrics(metrics: &mut Vec<MetricData>, agent_id: &str, timestamp: u64) {
-    // CPU load
-    if let Ok(output) = Command::new("cat").arg("/proc/loadavg").output() {
+pub async fn collect_http_calls(config: &Config) -> Vec<HttpCallData> {
+    let mut http_calls = Vec::new();
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    
+    // Monitor network connections for HTTP traffic
+    if let Ok(output) = Command::new("ss").args(&["-tuln"]).output() {
         if let Ok(content) = String::from_utf8(output.stdout) {
-            if let Some(load) = content.split_whitespace().next() {
-                if let Ok(value) = load.parse::<f64>() {
-                    metrics.push(MetricData {
+            for line in content.lines() {
+                if line.contains(":80") || line.contains(":443") || line.contains(":8080") {
+                    // Simplified HTTP call tracking - in production use eBPF or tcpdump
+                    http_calls.push(HttpCallData {
                         timestamp,
-                        agent_id: agent_id.to_string(),
-                        metric_type: "cpu_load".to_string(),
-                        value,
-                        labels: HashMap::new(),
+                        agent_id: config.agent.name.clone(),
+                        method: "GET".to_string(),
+                        url: "detected_connection".to_string(),
+                        status_code: 200,
+                        duration_ms: 0,
+                        request_size: 0,
+                        response_size: 0,
                     });
                 }
             }
         }
     }
     
-    // Memory usage
-    if let Ok(output) = Command::new("free").arg("-m").output() {
+    http_calls
+}
+
+pub async fn collect_database_queries(config: &Config) -> Vec<DatabaseQueryData> {
+    let mut queries = Vec::new();
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    
+    // Monitor database connections
+    if let Ok(output) = Command::new("ss").args(&["-tuln"]).output() {
         if let Ok(content) = String::from_utf8(output.stdout) {
             for line in content.lines() {
-                if line.starts_with("Mem:") {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 3 {
-                        if let (Ok(total), Ok(used)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
-                            metrics.push(MetricData {
-                                timestamp,
-                                agent_id: agent_id.to_string(),
-                                metric_type: "memory_usage_percent".to_string(),
-                                value: (used / total) * 100.0,
-                                labels: HashMap::new(),
-                            });
-                        }
+                if line.contains(":5432") || line.contains(":3306") || line.contains(":27017") {
+                    let db_type = if line.contains(":5432") { "postgresql" }
+                                 else if line.contains(":3306") { "mysql" }
+                                 else { "mongodb" };
+                    
+                    queries.push(DatabaseQueryData {
+                        timestamp,
+                        agent_id: config.agent.name.clone(),
+                        db_type: db_type.to_string(),
+                        query: "connection_detected".to_string(),
+                        duration_ms: 0,
+                        rows_affected: 0,
+                        error: None,
+                    });
+                }
+            }
+        }
+    }
+    
+    queries
+}
+
+fn collect_system_metrics(metrics: &mut Vec<MetricData>, agent_id: &str, timestamp: u64) {
+    // CPU per core
+    if let Ok(content) = std::fs::read_to_string("/proc/stat") {
+        for (i, line) in content.lines().enumerate() {
+            if line.starts_with("cpu") && line != "cpu" {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 8 {
+                    let total: u64 = parts[1..8].iter().filter_map(|s| s.parse::<u64>().ok()).sum();
+                    let idle: u64 = parts[4].parse().unwrap_or(0);
+                    let usage = if total > 0 { ((total - idle) as f64 / total as f64) * 100.0 } else { 0.0 };
+                    
+                    metrics.push(MetricData {
+                        timestamp, agent_id: agent_id.to_string(),
+                        metric_type: "cpu_core_usage".to_string(), value: usage,
+                        labels: [("core".to_string(), (i-1).to_string())].into(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Memory details
+    if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
+        let mut mem_data = HashMap::new();
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                if let Ok(value) = parts[1].parse::<f64>() {
+                    mem_data.insert(parts[0].trim_end_matches(':'), value * 1024.0);
+                }
+            }
+        }
+        
+        if let (Some(&total), Some(&free), Some(&buffers), Some(&cached)) = 
+            (mem_data.get("MemTotal"), mem_data.get("MemFree"), 
+             mem_data.get("Buffers"), mem_data.get("Cached")) {
+            let used = total - free - buffers - cached;
+            metrics.push(MetricData {
+                timestamp, agent_id: agent_id.to_string(),
+                metric_type: "memory_used".to_string(), value: used,
+                labels: HashMap::new(),
+            });
+        }
+        
+        if let (Some(&swap_total), Some(&swap_free)) = 
+            (mem_data.get("SwapTotal"), mem_data.get("SwapFree")) {
+            metrics.push(MetricData {
+                timestamp, agent_id: agent_id.to_string(),
+                metric_type: "swap_used".to_string(), value: swap_total - swap_free,
+                labels: HashMap::new(),
+            });
+        }
+    }
+
+    // Load averages
+    if let Ok(content) = std::fs::read_to_string("/proc/loadavg") {
+        let parts: Vec<&str> = content.split_whitespace().collect();
+        if parts.len() >= 3 {
+            for (i, &load) in parts[0..3].iter().enumerate() {
+                if let Ok(value) = load.parse::<f64>() {
+                    metrics.push(MetricData {
+                        timestamp, agent_id: agent_id.to_string(),
+                        metric_type: "load_average".to_string(), value,
+                        labels: [("period".to_string(), ["1m","5m","15m"][i].to_string())].into(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Disk I/O
+    if let Ok(content) = std::fs::read_to_string("/proc/diskstats") {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 14 && !parts[2].starts_with("loop") {
+                if let (Ok(reads), Ok(writes)) = (parts[5].parse::<f64>(), parts[9].parse::<f64>()) {
+                    metrics.push(MetricData {
+                        timestamp, agent_id: agent_id.to_string(),
+                        metric_type: "disk_reads".to_string(), value: reads,
+                        labels: [("device".to_string(), parts[2].to_string())].into(),
+                    });
+                    metrics.push(MetricData {
+                        timestamp, agent_id: agent_id.to_string(),
+                        metric_type: "disk_writes".to_string(), value: writes,
+                        labels: [("device".to_string(), parts[2].to_string())].into(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Network interfaces
+    if let Ok(content) = std::fs::read_to_string("/proc/net/dev") {
+        for line in content.lines().skip(2) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 17 {
+                let iface = parts[0].trim_end_matches(':');
+                if let (Ok(rx_bytes), Ok(tx_bytes)) = (parts[1].parse::<f64>(), parts[9].parse::<f64>()) {
+                    metrics.push(MetricData {
+                        timestamp, agent_id: agent_id.to_string(),
+                        metric_type: "network_rx_bytes".to_string(), value: rx_bytes,
+                        labels: [("interface".to_string(), iface.to_string())].into(),
+                    });
+                    metrics.push(MetricData {
+                        timestamp, agent_id: agent_id.to_string(),
+                        metric_type: "network_tx_bytes".to_string(), value: tx_bytes,
+                        labels: [("interface".to_string(), iface.to_string())].into(),
+                    });
+                }
+            }
+        }
+    }
+
+    // File system usage
+    if let Ok(output) = Command::new("df").args(&["-B1"]).output() {
+        if let Ok(content) = String::from_utf8(output.stdout) {
+            for line in content.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 6 && parts[5].starts_with('/') {
+                    if let (Ok(total), Ok(used)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
+                        metrics.push(MetricData {
+                            timestamp, agent_id: agent_id.to_string(),
+                            metric_type: "filesystem_used_bytes".to_string(), value: used,
+                            labels: [("mountpoint".to_string(), parts[5].to_string())].into(),
+                        });
+                        metrics.push(MetricData {
+                            timestamp, agent_id: agent_id.to_string(),
+                            metric_type: "filesystem_usage_percent".to_string(), 
+                            value: if total > 0.0 { (used / total) * 100.0 } else { 0.0 },
+                            labels: [("mountpoint".to_string(), parts[5].to_string())].into(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Temperature sensors
+    if let Ok(entries) = std::fs::read_dir("/sys/class/thermal") {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with("thermal_zone") {
+                let temp_path = entry.path().join("temp");
+                if let Ok(temp_str) = std::fs::read_to_string(&temp_path) {
+                    if let Ok(temp) = temp_str.trim().parse::<f64>() {
+                        metrics.push(MetricData {
+                            timestamp, agent_id: agent_id.to_string(),
+                            metric_type: "temperature_celsius".to_string(), value: temp / 1000.0,
+                            labels: [("sensor".to_string(), entry.file_name().to_string_lossy().to_string())].into(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // GPU metrics (NVIDIA)
+    if let Ok(output) = Command::new("nvidia-smi")
+        .args(&["--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu", "--format=csv,noheader,nounits"])
+        .output() {
+        if let Ok(content) = String::from_utf8(output.stdout) {
+            for (i, line) in content.lines().enumerate() {
+                let parts: Vec<&str> = line.split(',').collect();
+                if parts.len() >= 4 {
+                    if let (Ok(util), Ok(mem_used), Ok(mem_total), Ok(temp)) = 
+                        (parts[0].trim().parse::<f64>(), parts[1].trim().parse::<f64>(), 
+                         parts[2].trim().parse::<f64>(), parts[3].trim().parse::<f64>()) {
+                        let gpu_id = i.to_string();
+                        metrics.push(MetricData {
+                            timestamp, agent_id: agent_id.to_string(),
+                            metric_type: "gpu_utilization".to_string(), value: util,
+                            labels: [("gpu".to_string(), gpu_id.clone())].into(),
+                        });
+                        metrics.push(MetricData {
+                            timestamp, agent_id: agent_id.to_string(),
+                            metric_type: "gpu_memory_used".to_string(), value: mem_used * 1024.0 * 1024.0,
+                            labels: [("gpu".to_string(), gpu_id.clone())].into(),
+                        });
+                        metrics.push(MetricData {
+                            timestamp, agent_id: agent_id.to_string(),
+                            metric_type: "gpu_temperature".to_string(), value: temp,
+                            labels: [("gpu".to_string(), gpu_id)].into(),
+                        });
                     }
                 }
             }

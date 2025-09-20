@@ -6,16 +6,23 @@ mod opensearch;
 mod ml;
 mod websocket;
 mod api;
+mod log_humanizer;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
     
-    // Start Kafka consumer
-    tokio::spawn(kafka::start_consumer());
+    // Start Kafka consumer (skip if Kafka unavailable)
+    tokio::spawn(async {
+        if let Err(e) = kafka::start_consumer().await {
+            eprintln!("Kafka unavailable, running without streaming: {}", e);
+        }
+    });
     
     // Start ML anomaly detection
     tokio::spawn(ml::start_anomaly_detector());
+    
+    println!("🚀 Mon-X Backend starting on http://127.0.0.1:8080");
     
     HttpServer::new(|| {
         let cors = Cors::default()
@@ -39,8 +46,13 @@ async fn main() -> std::io::Result<()> {
                     .route("/agents/traces", web::post().to(api::receive_agent_traces))
                     .route("/agents/processes", web::post().to(api::receive_agent_processes))
                     .route("/agents/health", web::post().to(api::receive_agent_health))
+                    .route("/agents/http-calls", web::post().to(api::receive_http_calls))
+                    .route("/agents/database-queries", web::post().to(api::receive_database_queries))
                     .route("/processes", web::get().to(api::get_processes))
                     .route("/health", web::get().to(api::get_health_status))
+                    .route("/http-calls", web::get().to(api::get_http_calls))
+                    .route("/database-queries", web::get().to(api::get_database_queries))
+                    .route("/humanize-log", web::post().to(api::humanize_log))
             )
     })
     .bind("127.0.0.1:8080")?

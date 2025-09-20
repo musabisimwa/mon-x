@@ -10,6 +10,7 @@ pub struct Anomaly {
     pub event: LogEvent,
     pub reason: String,
     pub algorithm: String,
+    pub humanized: Option<crate::log_humanizer::HumanizedLog>,
 }
 
 static ANOMALIES: LazyLock<Mutex<Vec<Anomaly>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -44,6 +45,31 @@ pub async fn analyze_event(event: &LogEvent) {
     }
 }
 
+pub async fn analyze_metric(metric: &crate::kafka::MetricEvent) {
+    // Store metrics for anomaly detection
+    if metric.metric_type == "cpu" && metric.value > 90.0 {
+        let anomaly = Anomaly {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            score: 0.95,
+            event: LogEvent {
+                timestamp: metric.timestamp.clone(),
+                level: "WARN".to_string(),
+                message: format!("High CPU usage: {}%", metric.value),
+                service: "system".to_string(),
+                agent_id: metric.agent_id.clone(),
+                source: "metrics".to_string(),
+                trace_id: None,
+            },
+            reason: format!("CPU usage spike: {}%", metric.value),
+            algorithm: "MetricThreshold".to_string(),
+            humanized: None,
+        };
+        
+        let mut anomalies = ANOMALIES.lock().unwrap();
+        anomalies.push(anomaly);
+    }
+}
+
 // Simple statistical anomaly detection (without isolation forest for now)
 async fn detect_statistical_anomalies() {
     let buffer = EVENT_BUFFER.lock().unwrap();
@@ -62,6 +88,7 @@ async fn detect_statistical_anomalies() {
                 event: event.clone(),
                 reason: format!("Unusually long error message ({} chars vs {} avg)", event.message.len(), avg_length as usize),
                 algorithm: "StatisticalAnalysis".to_string(),
+                humanized: None,
             });
         }
     }
@@ -92,6 +119,7 @@ async fn detect_frequency_anomalies() {
                 event: latest_error.clone(),
                 reason: format!("Error rate spike: {:.1}% vs {:.1}%", recent_rate * 100.0, historical_rate * 100.0),
                 algorithm: "RandomCutForest".to_string(),
+                humanized: None,
             });
         }
     }
@@ -117,6 +145,7 @@ async fn detect_pattern_anomalies() {
                     event: event.clone(),
                     reason: format!("Rare error pattern (seen {} times)", count),
                     algorithm: "LogEmbedding".to_string(),
+                    humanized: None,
                 });
             }
         }

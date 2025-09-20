@@ -54,6 +54,29 @@ pub struct TraceData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HttpCallData {
+    pub timestamp: u64,
+    pub agent_id: String,
+    pub method: String,
+    pub url: String,
+    pub status_code: u16,
+    pub duration_ms: u64,
+    pub request_size: u64,
+    pub response_size: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DatabaseQueryData {
+    pub timestamp: u64,
+    pub agent_id: String,
+    pub db_type: String,
+    pub query: String,
+    pub duration_ms: u64,
+    pub rows_affected: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProcessData {
     pub timestamp: u64,
     pub agent_id: String,
@@ -86,7 +109,7 @@ pub async fn get_logs(query: web::Query<LogQuery>) -> Result<HttpResponse> {
     let from = query.from.unwrap_or(0);
     let size = query.size.unwrap_or(50);
     
-    match crate::opensearch::search_logs(search_query, from, size).await {
+    match crate::opensearch::search_logs("*", Some(search_query), size).await {
         Ok(results) => Ok(HttpResponse::Ok().json(ApiResponse {
             success: true,
             data: results,
@@ -115,7 +138,15 @@ pub async fn get_metrics() -> Result<HttpResponse> {
 }
 
 pub async fn get_anomalies() -> Result<HttpResponse> {
-    let anomalies = crate::ml::get_anomalies();
+    let mut anomalies = crate::ml::get_anomalies();
+    
+    // Humanize recent anomalies that don't have humanization yet
+    for anomaly in &mut anomalies {
+        if anomaly.humanized.is_none() {
+            let humanized = crate::log_humanizer::humanize_log_message(&anomaly.event.message).await;
+            anomaly.humanized = Some(humanized);
+        }
+    }
     
     Ok(HttpResponse::Ok().json(ApiResponse {
         success: true,
@@ -129,6 +160,11 @@ pub async fn register_agent(agent_data: web::Json<serde_json::Value>) -> Result<
         .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.as_bool().unwrap_or(false))).collect())
         .unwrap_or_default();
     
+    // Create Kafka topics for this agent
+    if let Err(e) = crate::kafka::create_agent_topics(&name).await {
+        eprintln!("Failed to create topics for agent {}: {}", name, e);
+    }
+    
     let agent = Agent {
         name: name.clone(),
         last_seen: chrono::Utc::now().to_rfc3339(),
@@ -137,7 +173,7 @@ pub async fn register_agent(agent_data: web::Json<serde_json::Value>) -> Result<
     
     AGENTS.lock().unwrap().insert(name, agent);
     
-    Ok(HttpResponse::Ok().json(json!({"success": true, "message": "Agent registered"})))
+    Ok(HttpResponse::Ok().json(json!({"success": true, "message": "Agent registered with topics created"})))
 }
 
 pub async fn receive_agent_metrics(metrics: web::Json<Vec<MetricData>>) -> Result<HttpResponse> {
@@ -173,6 +209,8 @@ pub async fn receive_agent_logs(logs: web::Json<Vec<LogData>>) -> Result<HttpRes
             level: log.level.clone(),
             message: log.message.clone(),
             service: log.agent_id.clone(),
+            agent_id: log.agent_id.clone(),
+            source: "agent".to_string(),
             trace_id: None,
         };
         
@@ -274,5 +312,83 @@ pub async fn get_agents() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse {
         success: true,
         data: agents,
+    }))
+}
+
+// Storage for new data types
+static HTTP_CALLS: LazyLock<Mutex<Vec<HttpCallData>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+static DB_QUERIES: LazyLock<Mutex<Vec<DatabaseQueryData>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+pub async fn receive_http_calls(http_calls: web::Json<Vec<HttpCallData>>) -> Result<HttpResponse> {
+    let calls_data = http_calls.into_inner();
+    let calls_len = calls_data.len();
+    
+    // Store in memory (in production, send to OpenSearch)
+    {
+        let mut calls = HTTP_CALLS.lock().unwrap();
+        calls.extend(calls_data);
+        // Keep only last 1000 entries
+        let len = calls.len();
+        if len > 1000 {
+            calls.drain(0..len - 1000);
+        }
+    }
+    
+    Ok(HttpResponse::Ok().json(json!({
+        "success": true,
+        "message": format!("Received {} HTTP calls", calls_len)
+    })))
+}
+
+pub async fn receive_database_queries(db_queries: web::Json<Vec<DatabaseQueryData>>) -> Result<HttpResponse> {
+    let queries_data = db_queries.into_inner();
+    let queries_len = queries_data.len();
+    
+    // Store in memory (in production, send to OpenSearch)
+    {
+        let mut queries = DB_QUERIES.lock().unwrap();
+        queries.extend(queries_data);
+        // Keep only last 1000 entries
+        let len = queries.len();
+        if len > 1000 {
+            queries.drain(0..len - 1000);
+        }
+    }
+    
+    Ok(HttpResponse::Ok().json(json!({
+        "success": true,
+        "message": format!("Received {} database queries", queries_len)
+    })))
+}
+
+pub async fn get_http_calls() -> Result<HttpResponse> {
+    let calls = HTTP_CALLS.lock().unwrap().clone();
+    
+    Ok(HttpResponse::Ok().json(ApiResponse {
+        success: true,
+        data: calls,
+    }))
+}
+
+pub async fn get_database_queries() -> Result<HttpResponse> {
+    let queries = DB_QUERIES.lock().unwrap().clone();
+    
+    Ok(HttpResponse::Ok().json(ApiResponse {
+        success: true,
+        data: queries,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct HumanizeRequest {
+    pub log_message: String,
+}
+
+pub async fn humanize_log(req: web::Json<HumanizeRequest>) -> Result<HttpResponse> {
+    let humanized = crate::log_humanizer::humanize_log_message(&req.log_message).await;
+    
+    Ok(HttpResponse::Ok().json(ApiResponse {
+        success: true,
+        data: humanized,
     }))
 }

@@ -1,21 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  Container, Typography, Grid, Paper, Box, IconButton, Tabs, Tab,
-  Card, CardContent, List, ListItem, ListItemText, Chip
+import {
+  Container, Grid, Paper, Typography, Box, IconButton, Card, CardContent,
+  Chip, Alert, List, ListItem, ListItemText, Divider
 } from '@mui/material';
-import { ArrowBack, Timeline, Storage, BugReport, Memory } from '@mui/icons-material';
+import { ArrowBack, TrendingUp, Error, Speed, Memory } from '@mui/icons-material';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import axios from 'axios';
 
 const AppDetailPage = () => {
   const { appName } = useParams();
   const navigate = useNavigate();
-  const [tabValue, setTabValue] = useState(0);
   const [appData, setAppData] = useState(null);
   const [metrics, setMetrics] = useState([]);
+  const [anomalies, setAnomalies] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [traces, setTraces] = useState([]);
+  const [processes, setProcesses] = useState([]);
 
   useEffect(() => {
     fetchAppData();
@@ -25,207 +25,288 @@ const AppDetailPage = () => {
 
   const fetchAppData = async () => {
     try {
-      const [agentsRes, logsRes] = await Promise.all([
+      const [agentsRes, anomaliesRes, logsRes] = await Promise.all([
         axios.get('/api/agents'),
-        axios.get(`/api/logs?q=agent_name:${appName}&size=50`)
+        axios.get('/api/anomalies'),
+        axios.get(`/api/agents/${appName}/logs?size=50`).catch(() => ({ data: { data: { hits: { hits: [] } } } }))
       ]);
-      
+
       const agent = agentsRes.data.data.find(a => a.name === appName);
       setAppData(agent);
-      setLogs(logsRes.data.data?.hits?.hits || []);
-      
-      setMetrics(generateMockMetrics());
-      setTraces(generateMockTraces());
+
+      // Filter anomalies for this specific app
+      const appAnomalies = anomaliesRes.data.data.filter(a => 
+        a.event?.source === appName || 
+        a.event?.agent_id === appName ||
+        a.agent_id === appName
+      );
+      setAnomalies(appAnomalies);
+
+      // Get logs for this app
+      const appLogs = logsRes.data.data?.hits?.hits || [];
+      setLogs(appLogs);
+
+      // Generate mock metrics for this specific app
+      const now = Date.now();
+      const mockMetrics = Array.from({ length: 20 }, (_, i) => ({
+        time: new Date(now - (19 - i) * 30000).toLocaleTimeString(),
+        cpu: Math.random() * 100,
+        memory: Math.random() * 100,
+        load: Math.random() * 4,
+        errors: Math.floor(Math.random() * 10)
+      }));
+      setMetrics(mockMetrics);
+
     } catch (error) {
       console.error('Error fetching app data:', error);
     }
   };
 
-  const generateMockMetrics = () => {
-    return Array.from({ length: 20 }, (_, i) => ({
-      time: new Date(Date.now() - (19 - i) * 60000).toLocaleTimeString(),
-      cpu: Math.random() * 100,
-      memory: Math.random() * 100,
-      network: Math.random() * 1000,
-      errors: Math.random() * 10
-    }));
-  };
-
-  const generateMockTraces = () => {
-    const operations = ['GET /api/users', 'POST /api/orders', 'GET /health', 'PUT /api/config'];
-    return Array.from({ length: 10 }, (_, i) => ({
-      id: `trace-${i}`,
-      operation: operations[i % operations.length],
-      duration: Math.floor(Math.random() * 500) + 10,
-      status: Math.random() > 0.1 ? 'success' : 'error',
-      timestamp: new Date(Date.now() - i * 30000).toISOString()
-    }));
-  };
-
-  const renderTelemetry = () => (
-    <Grid container spacing={3}>
-      <Grid item xs={12}>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>Distributed Traces</Typography>
-          <List>
-            {traces.map((trace) => (
-              <ListItem key={trace.id} divider>
-                <ListItemText
-                  primary={
-                    <Box display="flex" justifyContent="space-between" alignItems="center">
-                      <Typography variant="body1">{trace.operation}</Typography>
-                      <Box>
-                        <Chip 
-                          label={`${trace.duration}ms`} 
-                          size="small" 
-                          color={trace.duration > 200 ? 'warning' : 'default'}
-                        />
-                        <Chip 
-                          label={trace.status} 
-                          size="small" 
-                          color={trace.status === 'success' ? 'success' : 'error'}
-                          sx={{ ml: 1 }}
-                        />
-                      </Box>
-                    </Box>
-                  }
-                  secondary={`Trace ID: ${trace.id} • ${new Date(trace.timestamp).toLocaleString()}`}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Paper>
-      </Grid>
-    </Grid>
-  );
-
-  const renderResources = () => (
-    <Grid container spacing={3}>
-      <Grid item xs={12} md={6}>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>CPU Usage</Typography>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={metrics}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="time" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="cpu" stroke="#8884d8" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </Paper>
-      </Grid>
-      <Grid item xs={12} md={6}>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>Memory Usage</Typography>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={metrics}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="time" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="memory" stroke="#82ca9d" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </Paper>
-      </Grid>
-    </Grid>
-  );
-
-  const renderLogs = () => (
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>Application Logs</Typography>
-      <List sx={{ maxHeight: 400, overflow: 'auto' }}>
-        {logs.map((log, index) => {
-          const source = log._source || {};
-          return (
-            <ListItem key={index} divider>
-              <ListItemText
-                primary={
-                  <Box display="flex" justifyContent="space-between" alignItems="center">
-                    <Typography variant="body2">{source.message || 'No message'}</Typography>
-                    <Chip 
-                      label={source.level || 'INFO'} 
-                      size="small" 
-                      color={source.level === 'ERROR' ? 'error' : source.level === 'WARN' ? 'warning' : 'default'}
-                    />
-                  </Box>
-                }
-                secondary={`${new Date(source.timestamp || source['@timestamp']).toLocaleString()} • ${source.service || appName}`}
-              />
-            </ListItem>
-          );
-        })}
-      </List>
-    </Paper>
-  );
-
   if (!appData) {
     return (
-      <Container maxWidth="xl" sx={{ py: 4 }}>
-        <Typography>Loading...</Typography>
+      <Container>
+        <Typography>Loading application data...</Typography>
       </Container>
     );
   }
 
+  const getHealthColor = () => {
+    const lastSeen = new Date(appData.last_seen);
+    const diffMinutes = (Date.now() - lastSeen) / (1000 * 60);
+    if (diffMinutes < 2) return 'success';
+    if (diffMinutes < 5) return 'warning';
+    return 'error';
+  };
+
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Container maxWidth="xl" sx={{ py: 2 }}>
+      {/* Header */}
       <Box display="flex" alignItems="center" mb={3}>
         <IconButton onClick={() => navigate('/')} sx={{ mr: 2 }}>
           <ArrowBack />
         </IconButton>
-        <Typography variant="h4">{appName}</Typography>
-        <Chip 
-          label="ACTIVE" 
-          color="success" 
-          sx={{ ml: 2 }}
-        />
+        <Box>
+          <Typography variant="h4" component="h1">
+            {appName}
+          </Typography>
+          <Typography variant="subtitle1" color="textSecondary">
+            Application-specific monitoring dashboard
+          </Typography>
+        </Box>
+        <Box sx={{ ml: 'auto' }}>
+          <Chip 
+            label={getHealthColor().toUpperCase()} 
+            color={getHealthColor()} 
+            sx={{ mr: 1 }} 
+          />
+          <Chip 
+            label={`${anomalies.length} anomalies`}
+            color={anomalies.length > 0 ? 'error' : 'success'}
+            variant="outlined"
+          />
+        </Box>
       </Box>
 
-      <Grid container spacing={3} mb={3}>
-        <Grid item xs={12} sm={6} md={3}>
+      <Grid container spacing={3}>
+        {/* Key Metrics Cards */}
+        <Grid item xs={12} md={3}>
           <Card>
             <CardContent>
-              <Typography color="textSecondary" gutterBottom>Status</Typography>
-              <Typography variant="h6">Healthy</Typography>
+              <Box display="flex" alignItems="center">
+                <Speed color="primary" sx={{ mr: 1 }} />
+                <Typography variant="h6">CPU Load</Typography>
+              </Box>
+              <Typography variant="h3" color="primary">
+                {metrics.length > 0 ? `${metrics[metrics.length - 1].cpu.toFixed(1)}%` : '0%'}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Application CPU usage
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+
+        <Grid item xs={12} md={3}>
           <Card>
             <CardContent>
-              <Typography color="textSecondary" gutterBottom>Capabilities</Typography>
-              <Typography variant="h6">{Object.values(appData.capabilities).filter(Boolean).length}</Typography>
+              <Box display="flex" alignItems="center">
+                <Memory color="secondary" sx={{ mr: 1 }} />
+                <Typography variant="h6">Memory</Typography>
+              </Box>
+              <Typography variant="h3" color="secondary">
+                {metrics.length > 0 ? `${metrics[metrics.length - 1].memory.toFixed(1)}%` : '0%'}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Application memory usage
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+
+        <Grid item xs={12} md={3}>
           <Card>
             <CardContent>
-              <Typography color="textSecondary" gutterBottom>Uptime</Typography>
-              <Typography variant="h6">2h 34m</Typography>
+              <Box display="flex" alignItems="center">
+                <Error color="error" sx={{ mr: 1 }} />
+                <Typography variant="h6">Anomalies</Typography>
+              </Box>
+              <Typography variant="h3" color="error">
+                {anomalies.length}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                AI-detected issues
+              </Typography>
             </CardContent>
           </Card>
+        </Grid>
+
+        <Grid item xs={12} md={3}>
+          <Card>
+            <CardContent>
+              <Box display="flex" alignItems="center">
+                <TrendingUp color="success" sx={{ mr: 1 }} />
+                <Typography variant="h6">Log Events</Typography>
+              </Box>
+              <Typography variant="h3" color="success">
+                {logs.length}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Recent log entries
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* System Metrics Chart */}
+        <Grid item xs={12} md={8}>
+          <Paper sx={{ p: 2, height: 400 }}>
+            <Typography variant="h6" gutterBottom>
+              {appName} - System Metrics
+            </Typography>
+            <ResponsiveContainer width="100%" height="90%">
+              <LineChart data={metrics}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" />
+                <YAxis />
+                <Tooltip />
+                <Line type="monotone" dataKey="cpu" stroke="#1976d2" name="CPU %" />
+                <Line type="monotone" dataKey="memory" stroke="#dc004e" name="Memory %" />
+                <Line type="monotone" dataKey="load" stroke="#2e7d32" name="Load Avg" />
+              </LineChart>
+            </ResponsiveContainer>
+          </Paper>
+        </Grid>
+
+        {/* Anomalies Panel */}
+        <Grid item xs={12} md={4}>
+          <Paper sx={{ p: 2, height: 400, overflow: 'auto' }}>
+            <Typography variant="h6" gutterBottom>
+              🤖 AI Anomalies ({anomalies.length})
+            </Typography>
+            {anomalies.length === 0 ? (
+              <Typography color="textSecondary">No anomalies detected</Typography>
+            ) : (
+              <List dense>
+                {anomalies.map((anomaly, index) => (
+                  <React.Fragment key={index}>
+                    <ListItem>
+                      <ListItemText
+                        primary={
+                          <Box>
+                            <Chip 
+                              label={anomaly.algorithm} 
+                              size="small" 
+                              color="warning" 
+                              sx={{ mr: 1 }} 
+                            />
+                            <Typography variant="body2" component="span">
+                              Score: {anomaly.score.toFixed(2)}
+                            </Typography>
+                          </Box>
+                        }
+                        secondary={
+                          <Box>
+                            <Typography variant="body2" color="textSecondary">
+                              {anomaly.reason}
+                            </Typography>
+                            {anomaly.humanized && (
+                              <Alert 
+                                severity={anomaly.humanized.severity.toLowerCase() === 'critical' ? 'error' : 
+                                         anomaly.humanized.severity.toLowerCase() === 'high' ? 'warning' : 'info'} 
+                                sx={{ mt: 1, p: 1 }}
+                              >
+                                <Typography variant="caption">
+                                  <strong>🔍 AI Analysis:</strong> {anomaly.humanized.human_explanation}
+                                </Typography>
+                                {anomaly.humanized.suggested_fixes.length > 0 && (
+                                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                                    <strong>💡 Fix:</strong> {anomaly.humanized.suggested_fixes[0]}
+                                  </Typography>
+                                )}
+                                <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                                  <strong>📊 Confidence:</strong> {(anomaly.humanized.confidence * 100).toFixed(0)}%
+                                </Typography>
+                              </Alert>
+                            )}
+                          </Box>
+                        }
+                      />
+                    </ListItem>
+                    {index < anomalies.length - 1 && <Divider />}
+                  </React.Fragment>
+                ))}
+              </List>
+            )}
+          </Paper>
+        </Grid>
+
+        {/* Real-time Logs */}
+        <Grid item xs={12}>
+          <Paper sx={{ p: 2, height: 300, overflow: 'auto' }}>
+            <Typography variant="h6" gutterBottom>
+              📋 {appName} - Real-time Logs ({logs.length})
+            </Typography>
+            <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+              {logs.length === 0 ? (
+                <Typography color="textSecondary">No recent logs for this application</Typography>
+              ) : (
+                logs.map((log, index) => {
+                  const logData = log._source || log;
+                  const levelColor = {
+                    ERROR: '#f44336',
+                    WARN: '#ff9800',
+                    INFO: '#2196f3',
+                    DEBUG: '#9e9e9e'
+                  }[logData.level] || '#000';
+
+                  return (
+                    <Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1, borderLeft: `4px solid ${levelColor}` }}>
+                      <Box display="flex" alignItems="center" gap={1}>
+                        <Typography variant="caption" color="textSecondary" sx={{ minWidth: 80 }}>
+                          {new Date(logData.timestamp * 1000).toLocaleTimeString()}
+                        </Typography>
+                        <Chip 
+                          label={logData.level} 
+                          size="small" 
+                          sx={{ 
+                            bgcolor: levelColor, 
+                            color: 'white', 
+                            minWidth: 60,
+                            fontSize: '0.7rem'
+                          }}
+                        />
+                        <Typography variant="body2" sx={{ flex: 1, wordBreak: 'break-word' }}>
+                          {logData.message}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  );
+                })
+              )}
+            </Box>
+          </Paper>
         </Grid>
       </Grid>
-
-      <Paper sx={{ width: '100%' }}>
-        <Tabs 
-          value={tabValue} 
-          onChange={(e, newValue) => setTabValue(newValue)}
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
-        >
-          <Tab icon={<Timeline />} label="Telemetry" />
-          <Tab icon={<Memory />} label="Resources" />
-          <Tab icon={<BugReport />} label="Logs" />
-        </Tabs>
-        
-        <Box sx={{ p: 3 }}>
-          {tabValue === 0 && renderTelemetry()}
-          {tabValue === 1 && renderResources()}
-          {tabValue === 2 && renderLogs()}
-        </Box>
-      </Paper>
     </Container>
   );
 };

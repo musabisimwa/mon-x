@@ -76,3 +76,23 @@ pub async fn send_comprehensive_data(
     
     Ok(())
 }
+
+pub async fn send_http_calls(config: &Config, http_calls: Vec<crate::collector::HttpCallData>) -> Result<(), Box<dyn std::error::Error>> {
+    if http_calls.is_empty() { return Ok(()); }
+    
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/agents/http-calls", config.agent.server_url);
+    let _ = client.post(&url).json(&http_calls).send().await;
+    
+    Ok(())
+}
+
+pub async fn send_database_queries(config: &Config, db_queries: Vec<crate::collector::DatabaseQueryData>) -> Result<(), Box<dyn std::error::Error>> {
+    if db_queries.is_empty() { return Ok(()); }
+    
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/agents/database-queries", config.agent.server_url);
+    let _ = client.post(&url).json(&db_queries).send().await;
+    
+    Ok(())
+}

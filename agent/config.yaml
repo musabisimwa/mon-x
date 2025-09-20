@@ -1,7 +1,7 @@
 agent:
   name: "comprehensive-agent-001"
   server_url: "http://localhost:8080"
-  report_interval: 10
+  report_interval: 5
 
 collection:
   metrics: true
@@ -10,8 +10,21 @@ collection:
   processes: true
   health: true
   docker: true
+  http_calls: true
+  database_queries: true
   nginx_log_path: "/var/log/nginx/access.log"
   health_check_urls:
     - "http://localhost:8080/health"
     - "http://localhost:3000/api/health"
     - "http://localhost:9200/_cluster/health"
+
+# Advanced monitoring features
+advanced:
+  cpu_per_core: true
+  memory_detailed: true
+  disk_io_stats: true
+  network_interfaces: true
+  temperature_sensors: true
+  gpu_monitoring: true
+  filesystem_usage: true
+  custom_app_metrics: true
