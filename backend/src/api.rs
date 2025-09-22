@@ -33,7 +33,7 @@ pub struct MetricData {
     pub labels: HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LogData {
     pub timestamp: u64,
     pub agent_id: String,
@@ -106,19 +106,28 @@ static HEALTH_DATA: LazyLock<Mutex<Vec<HealthData>>> = LazyLock::new(|| Mutex::n
 
 pub async fn get_logs(query: web::Query<LogQuery>) -> Result<HttpResponse> {
     let search_query = query.q.as_deref().unwrap_or("*");
-    let from = query.from.unwrap_or(0);
+    let _from = query.from.unwrap_or(0);
     let size = query.size.unwrap_or(50);
     
-    match crate::opensearch::search_logs("*", Some(search_query), size).await {
-        Ok(results) => Ok(HttpResponse::Ok().json(ApiResponse {
-            success: true,
-            data: results,
-        })),
-        Err(e) => Ok(HttpResponse::InternalServerError().json(json!({
-            "success": false,
-            "error": e.to_string()
-        }))),
-    }
+    let logs_store = LOGS.lock().unwrap();
+    
+    // Filter logs based on search query
+    let filtered_logs: Vec<_> = if search_query == "*" {
+        logs_store.iter().rev().take(size).cloned().collect()
+    } else {
+        logs_store.iter()
+            .filter(|log| log.message.to_lowercase().contains(&search_query.to_lowercase()) ||
+                         log.level.to_lowercase().contains(&search_query.to_lowercase()))
+            .rev()
+            .take(size)
+            .cloned()
+            .collect()
+    };
+    
+    Ok(HttpResponse::Ok().json(ApiResponse {
+        success: true,
+        data: filtered_logs,
+    }))
 }
 
 pub async fn get_metrics() -> Result<HttpResponse> {

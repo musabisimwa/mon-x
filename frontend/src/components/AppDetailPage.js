@@ -29,7 +29,7 @@ const AppDetailPage = () => {
       const [agentsRes, anomaliesRes, logsRes] = await Promise.all([
         axios.get('/api/agents'),
         axios.get('/api/anomalies'),
-        axios.get(`/api/agents/${appName}/logs?size=50`).catch(() => ({ data: { data: { hits: { hits: [] } } } }))
+        axios.get('/api/logs?size=50')
       ]);
 
       const agent = agentsRes.data.data.find(a => a.name === appName);
@@ -43,8 +43,9 @@ const AppDetailPage = () => {
       );
       setAnomalies(appAnomalies);
 
-      // Get logs for this app
-      const appLogs = logsRes.data.data?.hits?.hits || [];
+      // Get logs for this app - filter by agent_id
+      const allLogs = logsRes.data.data || [];
+      const appLogs = allLogs.filter(log => log.agent_id === appName);
       setLogs(appLogs);
 
       // Generate mock metrics for this specific app
@@ -283,7 +284,7 @@ const AppDetailPage = () => {
                   }[logData.level] || '#000';
 
                   return (
-                    <Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'grey.50', borderRadius: 1, borderLeft: `4px solid ${levelColor}` }}>
+                    <Box key={index} sx={{ mb: 1, p: 1, borderRadius: 1, borderLeft: `4px solid ${levelColor}` }}>
                       <Box display="flex" alignItems="center" gap={1}>
                         <Typography variant="caption" color="textSecondary" sx={{ minWidth: 80 }}>
                           {new Date(logData.timestamp * 1000).toLocaleTimeString()}

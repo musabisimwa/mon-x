@@ -130,13 +130,39 @@ pub async fn collect_logs(config: &Config) -> Vec<LogData> {
     let mut logs = Vec::new();
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     
+    // Collect real system logs from journalctl
+    collect_system_logs(&mut logs, &config.agent.name, timestamp).await;
+    
+    // Collect real docker logs
     collect_docker_logs(&mut logs, &config.agent.name, timestamp).await;
     
+    // Collect nginx logs if configured
     if let Some(nginx_path) = &config.collection.nginx_log_path {
         collect_nginx_logs(&mut logs, &config.agent.name, timestamp, nginx_path).await;
     }
     
     logs
+}
+
+async fn collect_system_logs(logs: &mut Vec<LogData>, agent_id: &str, timestamp: u64) {
+    // Get recent system logs from journalctl
+    if let Ok(output) = Command::new("journalctl")
+        .args(&["-n", "20", "--no-pager", "--output=short"])
+        .output() {
+        if let Ok(content) = String::from_utf8(output.stdout) {
+            for line in content.lines() {
+                if !line.trim().is_empty() {
+                    logs.push(LogData {
+                        timestamp,
+                        agent_id: agent_id.to_string(),
+                        level: extract_log_level(line),
+                        message: line.to_string(),
+                        source: "system".to_string(),
+                    });
+                }
+            }
+        }
+    }
 }
 
 pub async fn collect_traces(config: &Config) -> Vec<TraceData> {
@@ -278,7 +304,7 @@ fn collect_system_metrics(metrics: &mut Vec<MetricData>, agent_id: &str, timesta
                 if parts.len() >= 8 {
                     let total: u64 = parts[1..8].iter().filter_map(|s| s.parse::<u64>().ok()).sum();
                     let idle: u64 = parts[4].parse().unwrap_or(0);
-                    let usage = if total > 0 { ((total - idle) as f64 / total as f64) * 100.0 } else { 0.0 };
+                    let usage = if total > idle { ((total - idle) as f64 / total as f64) * 100.0 } else { 0.0 };
                     
                     metrics.push(MetricData {
                         timestamp, agent_id: agent_id.to_string(),
@@ -525,27 +551,29 @@ async fn collect_nginx_logs(logs: &mut Vec<LogData>, agent_id: &str, timestamp: 
 }
 
 async fn collect_http_traces(traces: &mut Vec<TraceData>, agent_id: &str, timestamp: u64) {
-    let operations = vec![
-        ("GET /api/health", 45, "200"),
-        ("POST /api/users", 120, "201"),
-        ("GET /api/metrics", 30, "200"),
-        ("PUT /api/config", 85, "200"),
-        ("DELETE /api/cache", 15, "204"),
-    ];
-    
-    for (operation, duration, status) in operations {
-        let trace_id = Uuid::new_v4().to_string();
-        let span_id = Uuid::new_v4().to_string();
-        
-        traces.push(TraceData {
-            timestamp,
-            agent_id: agent_id.to_string(),
-            trace_id,
-            span_id,
-            operation: operation.to_string(),
-            duration_ms: duration,
-            status: status.to_string(),
-        });
+    // Only collect real traces from actual network connections
+    if let Ok(output) = Command::new("ss").args(&["-tuln"]).output() {
+        if let Ok(content) = String::from_utf8(output.stdout) {
+            for line in content.lines() {
+                if line.contains("LISTEN") && (line.contains(":80") || line.contains(":443") || line.contains(":8080")) {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        let trace_id = Uuid::new_v4().to_string();
+                        let span_id = Uuid::new_v4().to_string();
+                        
+                        traces.push(TraceData {
+                            timestamp,
+                            agent_id: agent_id.to_string(),
+                            trace_id,
+                            span_id,
+                            operation: format!("LISTEN {}", parts[3]),
+                            duration_ms: 0, // Real listening sockets don't have duration
+                            status: "ACTIVE".to_string(),
+                        });
+                    }
+                }
+            }
+        }
     }
 }
 
